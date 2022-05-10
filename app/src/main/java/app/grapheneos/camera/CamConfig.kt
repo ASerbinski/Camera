@@ -6,6 +6,8 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -20,6 +22,7 @@ import android.view.animation.LinearInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import androidx.annotation.StringRes
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -1292,13 +1295,22 @@ class CamConfig(private val mActivity: MainActivity) {
             }
         }
 
-        preview = Preview.Builder()
+        var previewBuilder = Preview.Builder()
             .setTargetRotation(
                 preview?.targetRotation
                     ?: rotation
             )
-            .setTargetAspectRatio(aspectRatio)
-            .build()
+            .setTargetAspectRatio(aspectRatio);
+
+        if (!isVideoMode) {
+            Camera2Interop.Extender(previewBuilder)
+                .setCaptureRequestOption(
+                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+                )
+        }
+
+        preview = previewBuilder.build()
 
         preview?.let {
             useCaseGroupBuilder.addUseCase(it)
