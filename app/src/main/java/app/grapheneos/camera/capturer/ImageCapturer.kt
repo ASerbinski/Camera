@@ -1,253 +1,189 @@
 package app.grapheneos.camera.capturer
 
 import android.annotation.SuppressLint
-import android.content.ContentValues
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Bitmap
 import android.net.Uri
-import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.view.animation.LinearInterpolator
-import android.webkit.MimeTypeMap
 import android.widget.FrameLayout
-import androidx.annotation.StringRes
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.impl.utils.executor.CameraXExecutors
-import androidx.core.content.ContextCompat
-import androidx.documentfile.provider.DocumentFile
-import app.grapheneos.camerax.ImageSaver
-import app.grapheneos.camerax.OutputFileOptions
 import app.grapheneos.camera.App
-import app.grapheneos.camera.CamConfig
 import app.grapheneos.camera.R
 import app.grapheneos.camera.ui.activities.MainActivity
 import app.grapheneos.camera.ui.activities.MainActivity.Companion.camConfig
 import app.grapheneos.camera.ui.activities.SecureMainActivity
-import java.io.FileNotFoundException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+
+private const val imageFileFormat = ".jpg"
+var isTakingPicture: Boolean = false
 
 class ImageCapturer(private val mActivity: MainActivity) {
-    private val imageFileFormat = ".jpg"
-    private val mainExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
-
-    @SuppressLint("RestrictedApi")
-    private val sequentialExecutor = CameraXExecutors.newSequentialExecutor(executor)
-
-    private fun genOutputBuilderForImage():
-            OutputFileOptions {
-
-        var fileName: String
-
-        val sdf = SimpleDateFormat(
-            "yyyyMMdd_HHmmss",
-            Locale.US
-        )
-        val date = Date()
-        fileName = sdf.format(date)
-        fileName = "IMG_$fileName$imageFileFormat"
-
-        val mimeType =
-            MimeTypeMap.getSingleton().getMimeTypeFromExtension(imageFileFormat) ?: "image/*"
-
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-        }
-
-        if (camConfig.storageLocation.isEmpty()) {
-
-            contentValues.put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                "DCIM/Camera"
-            )
-
-            return OutputFileOptions.OutputFileOptionsMediaStore(
-                mActivity.contentResolver,
-                CamConfig.imageCollectionUri,
-                contentValues
-            )
-
-        } else {
-            try {
-                val parent = DocumentFile.fromTreeUri(
-                    mActivity,
-                    Uri.parse(
-                        camConfig.storageLocation
-                    )
-                )!!
-
-                val child = parent.createFile(
-                    mimeType,
-                    fileName
-                )!!
-
-                val contentResolver = mActivity.contentResolver
-                camConfig.addToGallery(child.uri)
-
-                return OutputFileOptions.OutputFileOptionsOutputStream(contentResolver, child.uri)
-            } catch (exception: NullPointerException) {
-                throw FileNotFoundException("The default storage location seems to have been deleted.")
-            }
-        }
-    }
-
-    var isTakingPicture: Boolean = false
 
     @SuppressLint("RestrictedApi")
     fun takePicture() {
-        if (camConfig.camera == null) return
+        if (camConfig.camera == null) {
+            return
+        }
 
         if (!camConfig.canTakePicture) {
-            mActivity.showMessage(getString(R.string.unsupported_taking_picture_while_recording))
+            mActivity.showMessage(R.string.unsupported_taking_picture_while_recording)
             return
         }
 
         if (isTakingPicture) {
-            mActivity.showMessage(getString(R.string.image_processing_pending))
-            return
-        }
-
-        val outputFileOptions: OutputFileOptions
-
-        try {
-            outputFileOptions = genOutputBuilderForImage()
-        } catch (exception: FileNotFoundException) {
-            camConfig.onStorageLocationNotFound()
+            mActivity.showMessage(R.string.image_processing_pending)
             return
         }
 
         val imageMetadata = ImageCapture.Metadata()
-
-        imageMetadata.isReversedHorizontal =
-            camConfig.lensFacing ==
-                    CameraSelector.LENS_FACING_FRONT &&
-                    camConfig.saveImageAsPreviewed
+        imageMetadata.isReversedHorizontal = camConfig.lensFacing == CameraSelector.LENS_FACING_FRONT
+                && camConfig.saveImageAsPreviewed
 
         if (camConfig.requireLocation) {
-
             val location = (mActivity.applicationContext as App).getLocation()
             if (location == null) {
-                mActivity.showMessage(getString(R.string.location_unavailable))
+                mActivity.showMessage(R.string.location_unavailable)
             } else {
                 imageMetadata.location = location
             }
         }
 
-        outputFileOptions.metadata = imageMetadata
+        val preview = mActivity.imagePreview
 
-        val imageSavedCallbackWrapper: ImageSaver.OnImageSavedCallback =
-            object : ImageSaver.OnImageSavedCallback {
-                override fun onImageSaved(mSavedUri: Uri?) {
-                    if (mSavedUri != null) {
-                        camConfig.addToGallery(mSavedUri)
-                    }
+        val imageCapture = camConfig.imageCapture!!
 
-                    if (mActivity is SecureMainActivity) {
-                        mActivity.capturedFilePaths.add(0, camConfig.latestUri.toString())
-                    }
-
-                    mActivity.runOnUiThread {
-                        camConfig.updatePreview()
-                        mActivity.previewLoader.visibility = View.GONE
-                    }
-                    Log.i(TAG, "Image saved successfully")
-                }
-
-                override fun onError(
-                    saveError: ImageSaver.SaveError,
-                    message: String,
-                    cause: Throwable?
-                ) {
-                    cause?.printStackTrace()
-                    mActivity.runOnUiThread {
-                        mActivity.previewLoader.visibility = View.GONE
-                    }
-                }
-            }
-        camConfig.imageCapture!!.takePicture(
-            ContextCompat.getMainExecutor(mActivity),
-            object : ImageCapture.OnImageCapturedCallback() {
-                override fun onCaptureSuccess(image: ImageProxy) {
-                    super.onCaptureSuccess(image)
-                    Log.i(TAG, "Image Capture successfully!")
-                    camConfig.mPlayer.playShutterSound()
-                    camConfig.snapPreview()
-
-                    mActivity.runOnUiThread {
-                        mActivity.previewLoader.visibility = View.VISIBLE
-                        if (camConfig.selfIlluminate) {
-
-                            val animation: Animation = AlphaAnimation(0.8f, 0f)
-                            animation.duration = 200
-                            animation.interpolator = LinearInterpolator()
-                            animation.fillAfter = true
-
-                            mActivity.mainOverlay.setImageResource(android.R.color.white)
-
-                            animation.setAnimationListener(
-                                object : Animation.AnimationListener {
-                                    override fun onAnimationStart(p0: Animation?) {
-                                        mActivity.mainOverlay.visibility = View.VISIBLE
-                                    }
-
-                                    override fun onAnimationEnd(p0: Animation?) {
-                                        mActivity.mainOverlay.visibility = View.INVISIBLE
-                                        mActivity.mainOverlay.setImageResource(android.R.color.transparent)
-                                        mActivity.updateLastFrame()
-
-                                        mActivity.mainOverlay.layoutParams =
-                                            (mActivity.mainOverlay.layoutParams as FrameLayout.LayoutParams).apply {
-                                                this.setMargins(
-                                                    leftMargin,
-                                                    (46 * mActivity.resources.displayMetrics.density).toInt(), // topMargin
-                                                    rightMargin,
-                                                    (40 * mActivity.resources.displayMetrics.density).toInt() // bottomMargin
-                                                )
-                                            }
-                                    }
-
-                                    override fun onAnimationRepeat(p0: Animation?) {}
-
-                                }
-                            )
-
-                            mActivity.mainOverlay.startAnimation(animation)
-                        }
-                    }
-                    executor.execute {
-                        ImageSaver(
-                            image,
-                            outputFileOptions,
-                            image.imageInfo.rotationDegrees,
-                            100,
-                            mainExecutor,
-                            sequentialExecutor,
-                            imageSavedCallbackWrapper
-                        ).run()
-                    }
-                    isTakingPicture = false
-                }
-
-                override fun onError(exception: ImageCaptureException) {
-                    super.onError(exception)
-                    mActivity.previewLoader.visibility = View.GONE
-                    isTakingPicture = false
-                }
-            }
+        val imageSaver = ImageSaver(
+            this,
+            mActivity.applicationContext,
+            imageCapture.jpegQuality,
+            camConfig.storageLocation,
+            imageFileFormat,
+            imageMetadata,
+            camConfig.removeExifAfterCapture,
+            targetThumbnailWidth = preview.width,
+            targetThumbnailHeight = preview.height,
         )
+
         isTakingPicture = true
+
+        imageCapture.takePicture(ImageSaver.imageCaptureCallbackExecutor, imageSaver)
     }
 
-    private fun getString(@StringRes id: Int) = mActivity.getString(id)
+    fun onCaptureSuccess() {
+        isTakingPicture = false
+
+        camConfig.mPlayer.playShutterSound()
+        camConfig.snapPreview()
+
+        mActivity.previewLoader.visibility = View.VISIBLE
+        if (camConfig.selfIlluminate) {
+
+            val animation: Animation = AlphaAnimation(0.8f, 0f)
+            animation.duration = 200
+            animation.interpolator = LinearInterpolator()
+            animation.fillAfter = true
+
+            mActivity.mainOverlay.setImageResource(android.R.color.white)
+
+            animation.setAnimationListener(
+                object : Animation.AnimationListener {
+                    override fun onAnimationStart(p0: Animation?) {
+                        mActivity.mainOverlay.visibility = View.VISIBLE
+                    }
+
+                    override fun onAnimationEnd(p0: Animation?) {
+                        mActivity.mainOverlay.visibility = View.INVISIBLE
+                        mActivity.mainOverlay.setImageResource(android.R.color.transparent)
+                        mActivity.updateLastFrame()
+
+                        mActivity.mainOverlay.layoutParams =
+                            (mActivity.mainOverlay.layoutParams as FrameLayout.LayoutParams).apply {
+                                this.setMargins(
+                                    leftMargin,
+                                    (46 * mActivity.resources.displayMetrics.density).toInt(), // topMargin
+                                    rightMargin,
+                                    (40 * mActivity.resources.displayMetrics.density).toInt() // bottomMargin
+                                )
+                            }
+                    }
+
+                    override fun onAnimationRepeat(p0: Animation?) {}
+
+                }
+            )
+
+            mActivity.mainOverlay.startAnimation(animation)
+        }
+    }
+
+    fun onCaptureError(exception: ImageCaptureException) {
+        Log.e(TAG, "onCaptureError", exception)
+
+        isTakingPicture = false
+        mActivity.previewLoader.visibility = View.GONE
+
+        val msg = mActivity.getString(R.string.unable_to_capture_image_verbose, exception.imageCaptureError)
+        showErrorDialog(msg, exception)
+    }
+
+    fun onImageSaverSuccess(uri: Uri) {
+        camConfig.addToGallery(uri)
+
+        if (mActivity is SecureMainActivity) {
+            mActivity.capturedFilePaths.add(0, camConfig.latestUri.toString())
+        }
+    }
+
+    fun onStorageLocationNotFound() {
+        camConfig.onStorageLocationNotFound()
+    }
+
+    fun onImageSaverError(exception: ImageSaverException, skipErrorDialog: Boolean) {
+        Log.e(TAG, "onImageSaverError", exception)
+        mActivity.previewLoader.visibility = View.GONE
+
+        if (skipErrorDialog) {
+            mActivity.showMessage(R.string.unable_to_save_image)
+        } else {
+            val msg = mActivity.getString(R.string.unable_to_save_image_verbose, exception.place.name)
+            showErrorDialog(msg, exception)
+        }
+    }
+
+    private fun showErrorDialog(message: String, exception: Throwable) {
+        val ctx = mActivity
+
+        AlertDialog.Builder(ctx).apply {
+            setMessage(message)
+            setPositiveButton(R.string.show_details) { _, _ ->
+                val list = exception.asStringList()
+
+                AlertDialog.Builder(ctx).apply {
+                    setItems(list.toTypedArray(), null)
+                    setNeutralButton(R.string.copy_to_clipboard) { _, _ ->
+                        val clipData = ClipData.newPlainText(exception.javaClass.name, list.joinToString("\n"))
+                        val cm = mActivity.getSystemService(ClipboardManager::class.java)
+                        cm.setPrimaryClip(clipData)
+                        ctx.showMessage(R.string.copied_text_to_clipboard)
+                    }
+                    show()
+                }
+            }
+            show()
+        }
+    }
+
+    fun onThumbnailGenerated(thumbnail: Bitmap) {
+        mActivity.previewLoader.visibility = View.GONE
+        mActivity.imagePreview.setImageBitmap(thumbnail)
+    }
 
     companion object {
         private const val TAG = "ImageCapturer"

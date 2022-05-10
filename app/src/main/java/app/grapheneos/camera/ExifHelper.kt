@@ -1,7 +1,6 @@
 package app.grapheneos.camera
 
-import androidx.exifinterface.media.ExifInterface
-import app.grapheneos.camera.ui.activities.MainActivity.Companion.camConfig
+import androidxc.exifinterface.media.ExifInterface
 import java.util.TimeZone
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -86,7 +85,7 @@ private val exifAttributes = arrayOf(
     ExifInterface.TAG_FOCAL_PLANE_X_RESOLUTION,
     ExifInterface.TAG_FOCAL_PLANE_Y_RESOLUTION,
     ExifInterface.TAG_FOCAL_PLANE_RESOLUTION_UNIT,
-//    ExifInterface.TAG_SUBJECT_LOCATION,
+    ExifInterface.TAG_SUBJECT_LOCATION,
     ExifInterface.TAG_EXPOSURE_INDEX,
     ExifInterface.TAG_SENSING_METHOD,
     ExifInterface.TAG_FILE_SOURCE,
@@ -111,39 +110,38 @@ private val exifAttributes = arrayOf(
     ExifInterface.TAG_LENS_MAKE,
     ExifInterface.TAG_LENS_MODEL,
     ExifInterface.TAG_LENS_SERIAL_NUMBER,
-    // To prevent overriding user pref. for location related data
-//    ExifInterface.TAG_GPS_VERSION_ID,
-//    ExifInterface.TAG_GPS_LATITUDE_REF,
-//    ExifInterface.TAG_GPS_LATITUDE,
-//    ExifInterface.TAG_GPS_LONGITUDE_REF,
-//    ExifInterface.TAG_GPS_LONGITUDE,
-//    ExifInterface.TAG_GPS_ALTITUDE_REF,
-//    ExifInterface.TAG_GPS_ALTITUDE,
-//    ExifInterface.TAG_GPS_TIMESTAMP,
-//    ExifInterface.TAG_GPS_SATELLITES,
-//    ExifInterface.TAG_GPS_STATUS,
-//    ExifInterface.TAG_GPS_MEASURE_MODE,
-//    ExifInterface.TAG_GPS_DOP,
-//    ExifInterface.TAG_GPS_SPEED_REF,
-//    ExifInterface.TAG_GPS_SPEED,
-//    ExifInterface.TAG_GPS_TRACK_REF,
-//    ExifInterface.TAG_GPS_TRACK,
-//    ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
-//    ExifInterface.TAG_GPS_IMG_DIRECTION,
-//    ExifInterface.TAG_GPS_MAP_DATUM,
-//    ExifInterface.TAG_GPS_DEST_LATITUDE_REF,
-//    ExifInterface.TAG_GPS_DEST_LATITUDE,
-//    ExifInterface.TAG_GPS_DEST_LONGITUDE_REF,
-//    ExifInterface.TAG_GPS_DEST_LONGITUDE,
-//    ExifInterface.TAG_GPS_DEST_BEARING_REF,
-//    ExifInterface.TAG_GPS_DEST_BEARING,
-//    ExifInterface.TAG_GPS_DEST_DISTANCE_REF,
-//    ExifInterface.TAG_GPS_DEST_DISTANCE,
-//    ExifInterface.TAG_GPS_PROCESSING_METHOD,
-//    ExifInterface.TAG_GPS_AREA_INFORMATION,
-//    ExifInterface.TAG_GPS_DATESTAMP,
-//    ExifInterface.TAG_GPS_DIFFERENTIAL,
-//    ExifInterface.TAG_GPS_H_POSITIONING_ERROR,
+    ExifInterface.TAG_GPS_VERSION_ID,
+    ExifInterface.TAG_GPS_LATITUDE_REF,
+    ExifInterface.TAG_GPS_LATITUDE,
+    ExifInterface.TAG_GPS_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_LONGITUDE,
+    ExifInterface.TAG_GPS_ALTITUDE_REF,
+    ExifInterface.TAG_GPS_ALTITUDE,
+    ExifInterface.TAG_GPS_TIMESTAMP,
+    ExifInterface.TAG_GPS_SATELLITES,
+    ExifInterface.TAG_GPS_STATUS,
+    ExifInterface.TAG_GPS_MEASURE_MODE,
+    ExifInterface.TAG_GPS_DOP,
+    ExifInterface.TAG_GPS_SPEED_REF,
+    ExifInterface.TAG_GPS_SPEED,
+    ExifInterface.TAG_GPS_TRACK_REF,
+    ExifInterface.TAG_GPS_TRACK,
+    ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
+    ExifInterface.TAG_GPS_IMG_DIRECTION,
+    ExifInterface.TAG_GPS_MAP_DATUM,
+    ExifInterface.TAG_GPS_DEST_LATITUDE_REF,
+    ExifInterface.TAG_GPS_DEST_LATITUDE,
+    ExifInterface.TAG_GPS_DEST_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_DEST_LONGITUDE,
+    ExifInterface.TAG_GPS_DEST_BEARING_REF,
+    ExifInterface.TAG_GPS_DEST_BEARING,
+    ExifInterface.TAG_GPS_DEST_DISTANCE_REF,
+    ExifInterface.TAG_GPS_DEST_DISTANCE,
+    ExifInterface.TAG_GPS_PROCESSING_METHOD,
+    ExifInterface.TAG_GPS_AREA_INFORMATION,
+    ExifInterface.TAG_GPS_DATESTAMP,
+    ExifInterface.TAG_GPS_DIFFERENTIAL,
+    ExifInterface.TAG_GPS_H_POSITIONING_ERROR,
     ExifInterface.TAG_INTEROPERABILITY_INDEX,
     ExifInterface.TAG_THUMBNAIL_IMAGE_LENGTH,
     ExifInterface.TAG_THUMBNAIL_IMAGE_WIDTH,
@@ -164,10 +162,8 @@ private val exifAttributes = arrayOf(
     ExifInterface.TAG_SUBFILE_TYPE,
 )
 
-fun ExifInterface.fixExif(): ExifInterface {
-    val now = Date()
-
-    val millis = TimeZone.getDefault().getOffset(now.time)
+fun ExifInterface.fixExif(captureTime: Date) {
+    val millis = TimeZone.getDefault().getOffset(captureTime.time)
 
     val totalMins = (millis / (1000 * 60))
 
@@ -178,26 +174,23 @@ fun ExifInterface.fixExif(): ExifInterface {
         hoursStrRep = "+${hoursStrRep}"
 
     val mins = (totalMins % 60).toString().padEnd(2, '0')
+
     val offsetTime = "$hoursStrRep:$mins"
 
     setAttribute(ExifInterface.TAG_OFFSET_TIME, offsetTime)
     setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, offsetTime)
 //    exifInterface.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, offset_time)
 
-    val nowStrRep = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(now)
+    val nowStrRep = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(captureTime)
 
     setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, nowStrRep)
     setAttribute(ExifInterface.TAG_DATETIME, nowStrRep)
-    return this
 }
 
-fun ExifInterface.clearExif(): ExifInterface {
-    if (!camConfig.removeExifAfterCapture) return this
-
+fun ExifInterface.clearExif() {
     for (exifTag in exifAttributes) {
         removeAttribute(exifTag)
     }
-    return this
 }
 
 // TODO: (Re-)use this code later to implement custom EXIF removal setting
@@ -257,5 +250,5 @@ fun ExifInterface.clearExif(): ExifInterface {
 //}
 
 fun ExifInterface.removeAttribute(tag: String) {
-    return setAttribute(tag, null)
+    setAttribute(tag, null)
 }
